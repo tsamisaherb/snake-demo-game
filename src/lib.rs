@@ -26,17 +26,19 @@ turbo::init! {
     } = {
         Self {
             snake_session: SnakeSession{
-            snake_speed: 8,
-            grid_size: 16,
-            snakes: Vec::new(),
-            apples: Vec::new(),
+                snake_speed: 8,
+                grid_size: 16,
+                snakes: Vec::new(),
+                apples: Vec::new(),
             },
-        joined_game: false,
+            joined_game: false,
         }
 
 
     }
 }
+
+const PROGRAM_NAME: &'static str = "snake-demo";
 
 turbo::go!({
     use client::channel::*;
@@ -44,7 +46,7 @@ turbo::go!({
 
     // Subscribe to the channel
     let multiplayer_snake_channel =
-        Channel::subscribe("snake-demo", "snake_controller", "snake-channel");
+        Channel::subscribe(PROGRAM_NAME, "snake_controller", "snake-channel");
 
     // Connect to channel
     if let Channel::Disconnected(ref conn) = multiplayer_snake_channel {
@@ -76,7 +78,7 @@ turbo::go!({
     let gp = gamepad(0);
 
     // Send a message to join the game
-    if gp.start.just_pressed() {
+    if !state.joined_game && (gp.start.just_pressed() || mouse(0).left.just_pressed()) {
         if let Channel::Connected(ref conn) = multiplayer_snake_channel {
             let msg = PlayerMessage::JoinGame;
             let _ = conn.send(&msg.try_to_vec().unwrap());
@@ -120,16 +122,6 @@ turbo::go!({
         }
     }
 
-    // The snakes move every [snake_speed] frames in the game.
-    // In the server we have assigned one player to 'drive' the game,
-    // So when we parse the message in the channel, we only move the snakes if the driver sent the message
-    // if tick() % state.snake_session.snake_speed == 0 {
-    //     if let Channel::Connected(ref conn) = multiplayer_snake_channel {
-    //         let msg = PlayerMessage::MoveSnakes;
-    //         let _ = conn.send(&msg.try_to_vec().unwrap());
-    //     }
-    // }
-
     // The client draws all the graphics based on the state recieved from the server
     draw_snakes(&state.snake_session.snakes, state.snake_session.grid_size);
     draw_apples(&state.snake_session.apples, state.snake_session.grid_size);
@@ -145,7 +137,6 @@ fn init_snake(snakes: &mut Vec<Snake>, snake_id: u8) {
     let snake = Snake {
         positions: starting_positions,
         direction: Direction::Right,
-        last_direction: Direction::Right,
         snake_id,
     };
 
@@ -171,7 +162,6 @@ enum Direction {
 struct Snake {
     positions: Vec<(u32, u32)>,
     direction: Direction,
-    last_direction: Direction,
     snake_id: u8,
 }
 
@@ -186,7 +176,6 @@ fn move_snakes(snakes: &mut Vec<Snake>, grid_size: u32) {
             Direction::Left => ((width + head_x - 1) % width, head_y),
             Direction::Right => ((head_x + 1) % width, head_y),
         };
-        snake.last_direction = snake.direction;
         snake.positions.insert(0, new_head);
         snake.positions.pop();
     }
@@ -273,14 +262,14 @@ fn remove_player(snake_id: u8, player_snake_ids: &mut BTreeMap<String, u8>) {
 
 fn draw_snakes(snakes: &Vec<Snake>, grid_size: u32) {
     for snake in snakes {
-        let color = match snake.snake_id % 6 {
-            0 => 0x9370DBu32, // Medium Purple
-            1 => 0xFF69B4u32, // Hot Pink
-            2 => 0x20B2AAu32, // Light Sea Green
-            3 => 0xDDA0DDu32, // Plum
-            4 => 0xFF8C00u32, // Dark Orange
-            5 => 0x9932CCu32, // Dark Orchid
-            _ => 0xFFFFFFu32, // Fallback
+        let color: u32 = match snake.snake_id % 6 {
+            0 => 0x9370DBff, // Medium Purple
+            1 => 0xFF69B4ff, // Hot Pink
+            2 => 0x20B2AAff, // Light Sea Green
+            3 => 0xDDA0DDff, // Plum
+            4 => 0xFF8C00ff, // Dark Orange
+            5 => 0x9932CCff, // Dark Orchid
+            _ => 0xFFFFFFff, // Fallback
         };
 
         for &(x, y) in &snake.positions {
@@ -310,14 +299,6 @@ enum SnakeChannelMessage {
 
 #[export_name = "channel/snake_controller"]
 unsafe extern "C" fn snake_controller() {
-    os::server::log!("CHANNEL OPENED");
-    // 1. Handle channel creation parameters
-    // let cmd = os::server::command!(...);
-
-    // Process messages
-    // 1. Process incoming subscriber messages
-    // 2. Send outgoing subscriber messages
-    // 3. Interact with files as-needed
     let mut connected = BTreeSet::new(); // All Connected Players
     let mut driver = "".to_string(); // Only one player's messages will update the server
     let mut snake_id = 0;
@@ -336,7 +317,6 @@ unsafe extern "C" fn snake_controller() {
             // Handle a channel connection
             Ok(server::ChannelMessage::Connect(user_id, _data)) => {
                 connected.insert(user_id.clone());
-                os::server::log!("{user_id} CONNECTED");
                 // If we don't have a driver, then assign one
                 if driver.is_empty() {
                     driver = user_id;
@@ -344,31 +324,21 @@ unsafe extern "C" fn snake_controller() {
             }
             // Handle a channel disconnection
             Ok(server::ChannelMessage::Disconnect(user_id, _data)) => {
-                log!("DISCONNECTION");
                 connected.remove(&user_id);
-                let snake_id = player_snake_ids.get(&user_id);
-                let Some(snake_id) = snake_id else {
-                    continue;
-                };
-                state.snakes.retain(|snake| {
-                    if snake.snake_id == *snake_id {
-                        // If the driver disconnected, set that back to empty until we get a new driver
-                        if driver == user_id {
-                            driver = "".to_string();
-                        }
-                        false
-                    } else {
-                        true
+                if driver == user_id {
+                    if let Some(next_driver) = connected.first() {
+                        driver = next_driver.clone();
                     }
-                });
-
-                os::server::log!("{user_id} DISCONNECTED");
+                }
+                let snake_id = player_snake_ids.get(&user_id);
+                if let Some(snake_id) = snake_id {
+                    state.snakes.retain(|snake| snake.snake_id != *snake_id);
+                };
+                player_snake_ids.remove(&user_id);
             }
 
             // Handle custom message data sent to
             Ok(server::ChannelMessage::Data(user_id, data)) => {
-                os::server::log!("Got message: {user_id}");
-
                 if let Ok(data) = PlayerMessage::try_from_slice(&data) {
                     match data {
                         PlayerMessage::JoinGame => {
@@ -388,19 +358,18 @@ unsafe extern "C" fn snake_controller() {
                             let Some(player_snake_id) = player_snake_id else {
                                 continue;
                             };
-                            state.snakes.iter_mut().for_each(|snake| {
+                            for snake in &mut state.snakes {
                                 if snake.snake_id == *player_snake_id {
-                                    match snake.last_direction {
-                                        Direction::Up if dir == Direction::Down => return,
-                                        Direction::Down if dir == Direction::Up => return,
-                                        Direction::Left if dir == Direction::Right => return,
-                                        Direction::Right if dir == Direction::Left => return,
-                                        _ => snake.direction = dir,
-                                    }
+                                    snake.direction = match (snake.direction, dir) {
+                                        (Direction::Up, Direction::Down) => snake.direction,
+                                        (Direction::Down, Direction::Up) => snake.direction,
+                                        (Direction::Left, Direction::Right) => snake.direction,
+                                        (Direction::Right, Direction::Left) => snake.direction,
+                                        _ => dir,
+                                    };
+                                    break;
                                 }
-                            });
-                            let msg = SnakeChannelMessage::StateUpdate(state.clone());
-                            os::server::channel_broadcast(&msg.try_to_vec().unwrap());
+                            }
                         }
                         PlayerMessage::ResetGame => {
                             state = SnakeSession {
@@ -410,19 +379,13 @@ unsafe extern "C" fn snake_controller() {
                                 apples: Vec::new(),
                             };
                             player_snake_ids.clear();
-                            let msg = SnakeChannelMessage::StateUpdate(state.clone());
-                            os::server::channel_broadcast(&msg.try_to_vec().unwrap());
                         }
                     }
-                } else {
-                    os::server::log!("Got message from {user_id}");
-                    os::server::channel_send(&user_id, b"Got non-utf8 message");
                 }
             }
 
             // Handle a timeout error
             Err(server::ChannelError::Timeout) => {
-                //os::server::log!("Timeout Section");
                 if state.apples.len() == 0 {
                     create_new_apple(&mut state.snakes, &mut state.apples, state.grid_size);
                 }
