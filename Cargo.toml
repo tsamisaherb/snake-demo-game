@@ -1,0 +1,10 @@
+[package]
+name = "snake-demo-game"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+turbo = { version = "1.7.1", package = "turbo-genesis-sdk" }
+
+[lib]
+crate-type = ["cdylib"]
