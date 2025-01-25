@@ -1,5 +1,12 @@
+#![allow(unexpected_cfgs)]
+
 use crate::os::*;
+use client::channel::*;
 use std::collections::{BTreeMap, BTreeSet};
+
+const PROGRAM_NAME: &'static str = "snake-demo";
+const CANVAS_WIDTH: u16 = 512;
+const CANVAS_HEIGHT: u16 = 512;
 
 turbo::cfg! {r#"
     name = "snake-demo-game"
@@ -7,7 +14,7 @@ turbo::cfg! {r#"
     author = "Turbo"
     description = "Your first turbo os program"
     [settings]
-    resolution = [264, 448]
+    resolution = [512, 512]
     [turbo-os]
     api-url = "https://os.turbo.computer"
 "#}
@@ -15,33 +22,26 @@ turbo::cfg! {r#"
 turbo::init! {
     struct GameState {
         //This is all updated by the server
-        snake_session: struct SnakeSession{
-            snake_speed: usize,
-            grid_size: u32,
+        snake_session: struct SnakeSession {
+            grid_size: u16,
             snakes: Vec<Snake>,
-            apples: Vec<(u32, u32)>,
+            apples: Vec<(u16, u16)>,
         },
         //This is tracked locally for each player
         joined_game: bool,
     } = {
         Self {
-            snake_session: SnakeSession{
-                snake_speed: 8,
+            snake_session: SnakeSession {
                 grid_size: 16,
                 snakes: Vec::new(),
                 apples: Vec::new(),
             },
             joined_game: false,
         }
-
-
     }
 }
 
-const PROGRAM_NAME: &'static str = "snake-demo";
-
 turbo::go!({
-    use client::channel::*;
     let mut state = GameState::load();
 
     // Subscribe to the channel
@@ -130,9 +130,15 @@ turbo::go!({
 });
 
 /// Create a Snake. the ID is how we track which snake belongs to which player
-fn init_snake(snakes: &mut Vec<Snake>, snake_id: u8) {
+fn init_snake(snakes: &mut Vec<Snake>, snake_id: u8, grid_size: u16) {
     let snake_size = 5;
-    let starting_positions = vec![(5, 5); snake_size]; // 5 units at position (5,5)
+    let starting_positions = vec![
+        (
+            (CANVAS_WIDTH / grid_size) / 2,
+            (CANVAS_HEIGHT / grid_size) / 2
+        );
+        snake_size
+    ]; // 5 units at position (5,5)
 
     let snake = Snake {
         positions: starting_positions,
@@ -160,14 +166,14 @@ enum Direction {
 
 #[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
 struct Snake {
-    positions: Vec<(u32, u32)>,
+    positions: Vec<(u16, u16)>,
     direction: Direction,
     snake_id: u8,
 }
 
-fn move_snakes(snakes: &mut Vec<Snake>, grid_size: u32) {
-    let width = 264 / grid_size;
-    let height = 448 / grid_size;
+fn move_snakes(snakes: &mut Vec<Snake>, grid_size: u16) {
+    let width = CANVAS_WIDTH / grid_size;
+    let height = CANVAS_HEIGHT / grid_size;
     for snake in snakes.iter_mut() {
         let (head_x, head_y) = snake.positions[0];
         let new_head = match snake.direction {
@@ -183,7 +189,7 @@ fn move_snakes(snakes: &mut Vec<Snake>, grid_size: u32) {
 
 fn check_for_overlaps(
     snakes: &mut Vec<Snake>,
-    apples: &mut Vec<(u32, u32)>,
+    apples: &mut Vec<(u16, u16)>,
     player_snake_ids: &mut BTreeMap<String, u8>,
     driver: &mut String,
 ) {
@@ -222,14 +228,14 @@ fn check_for_overlaps(
     }
 }
 
-fn create_new_apple(snakes: &mut Vec<Snake>, apples: &mut Vec<(u32, u32)>, grid_size: u32) {
-    let width = 264 / grid_size;
-    let height = 448 / grid_size;
+fn create_new_apple(snakes: &mut Vec<Snake>, apples: &mut Vec<(u16, u16)>, grid_size: u16) {
+    let width = CANVAS_WIDTH / grid_size;
+    let height = CANVAS_HEIGHT / grid_size;
 
     loop {
         let pos = (
-            (os::server::random_number::<u32>() % width) as u32,
-            (os::server::random_number::<u32>() % height) as u32,
+            (os::server::random_number::<u16>() % width),
+            (os::server::random_number::<u16>() % height),
         );
         let overlaps = snakes.iter().any(|snake| snake.positions.contains(&pos));
         if !overlaps {
@@ -239,13 +245,13 @@ fn create_new_apple(snakes: &mut Vec<Snake>, apples: &mut Vec<(u32, u32)>, grid_
     }
 }
 
-fn draw_apples(apples: &Vec<(u32, u32)>, grid_size: u32) {
+fn draw_apples(apples: &Vec<(u16, u16)>, grid_size: u16) {
     for (x, y) in apples {
         circ!(
             x = x * grid_size + 2,
             y = y * grid_size + 2,
             d = grid_size - 4,
-            color = 0x00FF00FFu32
+            color = 0x00FF00FF
         );
     }
 }
@@ -260,7 +266,7 @@ fn remove_player(snake_id: u8, player_snake_ids: &mut BTreeMap<String, u8>) {
     }
 }
 
-fn draw_snakes(snakes: &Vec<Snake>, grid_size: u32) {
+fn draw_snakes(snakes: &Vec<Snake>, grid_size: u16) {
     for snake in snakes {
         let color: u32 = match snake.snake_id % 6 {
             0 => 0x9370DBff, // Medium Purple
@@ -286,7 +292,14 @@ fn draw_snakes(snakes: &Vec<Snake>, grid_size: u32) {
 
 fn draw_text(joined_game: bool) {
     if !joined_game {
-        text!("Press SPACE to join", x = 54, y = 200, font = Font::L);
+        let [w, h] = canvas_size!();
+        let msg = "Press SPACE to join";
+        let font_w = 8;
+        let font_h = 8;
+        let len = msg.len() as u32;
+        let x = (w / 2) - ((len * font_w) / 2);
+        let y = (h / 2) - (font_h / 2);
+        text!("Press SPACE to join", x = x, y = y, font = Font::L);
     }
 }
 
@@ -300,11 +313,11 @@ enum SnakeChannelMessage {
 #[export_name = "channel/snake_controller"]
 unsafe extern "C" fn snake_controller() {
     let mut connected = BTreeSet::new(); // All Connected Players
+    let mut did_update = BTreeSet::new(); // Tracks if a player made an update for the frame
     let mut driver = "".to_string(); // Only one player's messages will update the server
     let mut snake_id = 0;
     let mut player_snake_ids: BTreeMap<String, u8> = BTreeMap::new();
     let mut state = SnakeSession {
-        snake_speed: 8,
         grid_size: 16,
         snakes: Vec::new(),
         apples: Vec::new(),
@@ -313,7 +326,7 @@ unsafe extern "C" fn snake_controller() {
     loop {
         // Timeout runs every 128 ms.
         // When the TImeout runs all the snakes move and we check for overlaps
-        match os::server::channel_recv_with_timeout(128) {
+        match os::server::channel_recv_with_timeout(64) {
             // Handle a channel connection
             Ok(server::ChannelMessage::Connect(user_id, _data)) => {
                 connected.insert(user_id.clone());
@@ -345,7 +358,7 @@ unsafe extern "C" fn snake_controller() {
                             // Check if you are already in the game
                             // If not, then create a snake and add it to the map
                             if !player_snake_ids.contains_key(&user_id) {
-                                init_snake(&mut state.snakes, snake_id);
+                                init_snake(&mut state.snakes, snake_id, state.grid_size);
                                 player_snake_ids.insert(user_id.clone(), snake_id);
 
                                 let msg = SnakeChannelMessage::PlayerJoined();
@@ -354,6 +367,9 @@ unsafe extern "C" fn snake_controller() {
                             }
                         }
                         PlayerMessage::ChangeDirection { dir } => {
+                            if did_update.contains(&user_id) {
+                                continue;
+                            }
                             let player_snake_id = player_snake_ids.get(&user_id);
                             let Some(player_snake_id) = player_snake_id else {
                                 continue;
@@ -365,7 +381,10 @@ unsafe extern "C" fn snake_controller() {
                                         (Direction::Down, Direction::Up) => snake.direction,
                                         (Direction::Left, Direction::Right) => snake.direction,
                                         (Direction::Right, Direction::Left) => snake.direction,
-                                        _ => dir,
+                                        _ => {
+                                            did_update.insert(user_id.clone());
+                                            dir
+                                        }
                                     };
                                     break;
                                 }
@@ -373,7 +392,6 @@ unsafe extern "C" fn snake_controller() {
                         }
                         PlayerMessage::ResetGame => {
                             state = SnakeSession {
-                                snake_speed: 8,
                                 grid_size: 16,
                                 snakes: Vec::new(),
                                 apples: Vec::new(),
@@ -398,6 +416,7 @@ unsafe extern "C" fn snake_controller() {
                 );
                 let msg = SnakeChannelMessage::StateUpdate(state.clone());
                 os::server::channel_broadcast(&msg.try_to_vec().unwrap());
+                did_update.clear();
             }
             // Handle a channel closure
             Err(err) => {
