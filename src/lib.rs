@@ -132,7 +132,7 @@ turbo::go!({
 /// Create a Snake. the ID is how we track which snake belongs to which player
 fn init_snake(snakes: &mut Vec<Snake>, snake_id: u8) {
     let snake_size = 5;
-    let starting_positions = vec![(5, 5); snake_size]; // 5 units at position (5,5)
+    let starting_positions = vec![((CANVAS_WIDTH / 16) / 2, (CANVAS_HEIGHT / 16) / 2); snake_size]; // 5 units at position (5,5)
 
     let snake = Snake {
         positions: starting_positions,
@@ -361,6 +361,9 @@ unsafe extern "C" fn snake_controller() {
                             }
                         }
                         PlayerMessage::ChangeDirection { dir } => {
+                            if did_update.contains(&user_id) {
+                                continue;
+                            }
                             let player_snake_id = player_snake_ids.get(&user_id);
                             let Some(player_snake_id) = player_snake_id else {
                                 continue;
