@@ -130,9 +130,15 @@ turbo::go!({
 });
 
 /// Create a Snake. the ID is how we track which snake belongs to which player
-fn init_snake(snakes: &mut Vec<Snake>, snake_id: u8) {
+fn init_snake(snakes: &mut Vec<Snake>, snake_id: u8, grid_size: u16) {
     let snake_size = 5;
-    let starting_positions = vec![((CANVAS_WIDTH / 16) / 2, (CANVAS_HEIGHT / 16) / 2); snake_size]; // 5 units at position (5,5)
+    let starting_positions = vec![
+        (
+            (CANVAS_WIDTH / grid_size) / 2,
+            (CANVAS_HEIGHT / grid_size) / 2
+        );
+        snake_size
+    ]; // 5 units at position (5,5)
 
     let snake = Snake {
         positions: starting_positions,
@@ -352,7 +358,7 @@ unsafe extern "C" fn snake_controller() {
                             // Check if you are already in the game
                             // If not, then create a snake and add it to the map
                             if !player_snake_ids.contains_key(&user_id) {
-                                init_snake(&mut state.snakes, snake_id);
+                                init_snake(&mut state.snakes, snake_id, state.grid_size);
                                 player_snake_ids.insert(user_id.clone(), snake_id);
 
                                 let msg = SnakeChannelMessage::PlayerJoined();
