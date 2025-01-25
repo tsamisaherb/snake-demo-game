@@ -4,6 +4,10 @@ use crate::os::*;
 use client::channel::*;
 use std::collections::{BTreeMap, BTreeSet};
 
+const PROGRAM_NAME: &'static str = "snake-demo";
+const CANVAS_WIDTH: u16 = 512;
+const CANVAS_HEIGHT: u16 = 512;
+
 turbo::cfg! {r#"
     name = "snake-demo-game"
     version = "1.0.0"
@@ -36,10 +40,6 @@ turbo::init! {
         }
     }
 }
-
-const PROGRAM_NAME: &'static str = "snake-demo";
-const CANVAS_WIDTH: u16 = 512;
-const CANVAS_HEIGHT: u16 = 512;
 
 turbo::go!({
     let mut state = GameState::load();
@@ -307,6 +307,7 @@ enum SnakeChannelMessage {
 #[export_name = "channel/snake_controller"]
 unsafe extern "C" fn snake_controller() {
     let mut connected = BTreeSet::new(); // All Connected Players
+    let mut did_update = BTreeSet::new(); // Tracks if a player made an update for the frame
     let mut driver = "".to_string(); // Only one player's messages will update the server
     let mut snake_id = 0;
     let mut player_snake_ids: BTreeMap<String, u8> = BTreeMap::new();
@@ -371,7 +372,10 @@ unsafe extern "C" fn snake_controller() {
                                         (Direction::Down, Direction::Up) => snake.direction,
                                         (Direction::Left, Direction::Right) => snake.direction,
                                         (Direction::Right, Direction::Left) => snake.direction,
-                                        _ => dir,
+                                        _ => {
+                                            did_update.insert(user_id.clone());
+                                            dir
+                                        }
                                     };
                                     break;
                                 }
@@ -403,6 +407,7 @@ unsafe extern "C" fn snake_controller() {
                 );
                 let msg = SnakeChannelMessage::StateUpdate(state.clone());
                 os::server::channel_broadcast(&msg.try_to_vec().unwrap());
+                did_update.clear();
             }
             // Handle a channel closure
             Err(err) => {
