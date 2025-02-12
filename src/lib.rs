@@ -93,7 +93,7 @@ turbo::go!({
         }
     }
 
-    // Move the Snake from player input
+    // Send a message into the server to move the snake when the player pressed a direction key
     if gp.up.just_pressed() {
         if let Channel::Connected(ref conn) = multiplayer_snake_channel {
             let msg = PlayerMessage::ChangeDirection { dir: Direction::Up };
@@ -129,7 +129,7 @@ turbo::go!({
     state.save();
 });
 
-/// Create a Snake. the ID is how we track which snake belongs to which player
+// Create a Snake. the ID is how we track which snake belongs to which player
 fn init_snake(snakes: &mut Vec<Snake>, snake_id: u8, grid_size: u16) {
     let snake_size = 5;
     let starting_positions = vec![
@@ -138,7 +138,7 @@ fn init_snake(snakes: &mut Vec<Snake>, snake_id: u8, grid_size: u16) {
             (CANVAS_HEIGHT / grid_size) / 2
         );
         snake_size
-    ]; // 5 units at position (5,5)
+    ];
 
     let snake = Snake {
         positions: starting_positions,
@@ -324,8 +324,8 @@ unsafe extern "C" fn snake_controller() {
     };
 
     loop {
-        // Timeout runs every 128 ms.
-        // When the TImeout runs all the snakes move and we check for overlaps
+        // Timeout runs every 64 ms.
+        // When the Timeout runs all the snakes move and we check for overlaps
         match os::server::channel_recv_with_timeout(64) {
             // Handle a channel connection
             Ok(server::ChannelMessage::Connect(user_id, _data)) => {
